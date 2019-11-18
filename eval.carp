@@ -1,0 +1,97 @@
+(defndynamic empty? [l]
+  (= (length l) 0))
+
+(defndynamic map-internal [f xs acc]
+  (if (= (length xs) 0)
+      acc
+      (map-internal f (cdr xs) (append acc [(f (car xs))]))))
+
+(defndynamic map [f x]
+  (map-internal f x []))
+
+(defndynamic evaluate-args [ev args]
+  (if (empty? args)
+    []
+    (cons (evaluate- ev (car args)) (evaluate-args ev (cdr args)))))
+
+(defndynamic in? [ev binding]
+  (if (empty? ev)
+    false
+    (if (= binding (caar ev))
+      true
+      (in? (cdr ev) binding))))
+
+(defndynamic get-from-env [ev binding]
+  (if (empty? ev)
+    (macro-error "Not in env!")
+    (if (= binding (caar ev))
+      (cadar ev)
+      (get-from-env (cdr ev) binding))))
+
+(defndynamic apply-to [f args ev]
+  (do (macro-log ev)
+  (f ev (evaluate-args ev args))))
+
+(defndynamic apply [ev x]
+  (let [f (car x)]
+    (if (= 'quote f)
+      x
+      (if (in? ev f)
+        (apply-to (get-from-env ev f) (cdr x) ev)
+        (macro-error "Undefined function!")))))
+
+(defndynamic evaluate- [ev x]
+  (if (list? x)
+    (if (empty? x)
+      ()
+      (apply ev x))
+    (if (symbol? x)
+      (get-from-env ev x)
+      x)))
+
+(defndynamic plus [ev args]
+  (if (empty? args)
+    0
+    (+ (car args) (plus ev (cdr args)))))
+
+(defndynamic minus [ev args]
+  (if (empty? args)
+    0
+    (- (car args) (plus ev (cdr args)))))
+
+(defndynamic times [ev args]
+  (if (empty? args)
+    1
+    (* (car args) (plus ev (cdr args)))))
+
+(defndynamic div [ev args]
+  (if (empty? args)
+    1
+    (/ (car args) (plus ev (cdr args)))))
+
+(defndynamic define [ev args]
+  (defdynamic *global-bindings* (append ev (list (list (cadar args) (cadr args))))))
+
+(defndynamic user-defined [args body]
+  (macro-log "user defined: " args " " body))
+
+(defndynamic define-fn [ev args]
+  (defdynamic *global-bindings*
+    (append ev (list (list (cadar args)
+                           (user-defined (cadr args) (caddr args)))))))
+
+(defndynamic prt [ev args]
+  (macro-log args))
+
+(defdynamic *global-bindings*
+  (list
+    (list '+ plus)
+    (list '- minus)
+    (list '* times)
+    (list '/ div)
+    (list 'define define)
+    (list 'fun define-fn)
+    (list 'print prt)))
+
+(defndynamic evaluate [x]
+  (evaluate- *global-bindings* x))
