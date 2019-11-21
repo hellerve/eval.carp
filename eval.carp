@@ -9,10 +9,15 @@
 (defndynamic map [f x]
   (map-internal f x []))
 
+(defndynamic zip [a b]
+  (if (Dynamic.or (empty? a) (empty? b))
+    ()
+    (append (list (list (car a) (car b))) (zip (cdr a) (cdr b)))))
+
 (defndynamic evaluate-args [ev args]
   (if (empty? args)
     []
-    (cons (evaluate- ev (car args)) (evaluate-args ev (cdr args)))))
+    (cons (cadr (evaluate- ev (car args))) (evaluate-args ev (cdr args)))))
 
 (defndynamic in? [ev binding]
   (if (empty? ev)
@@ -28,70 +33,87 @@
       (cadar ev)
       (get-from-env (cdr ev) binding))))
 
+(defndynamic call-user-defined [f ev args]
+  (let [nev (append ev (zip (car f) args))]
+    (evaluate- nev (cadr f))))
+
 (defndynamic apply-to [f args ev]
-  (do (macro-log ev)
-  (f ev (evaluate-args ev args))))
+  (if (list? f)
+    (if (= (car f) 'prim)
+      ((cadr f) ev (evaluate-args ev args))
+      (if (= (car f) 'fun)
+        (call-user-defined (cdr f) ev (evaluate-args ev args))
+        (macro-error "Not a callable!")))
+    (macro-error "Not a callable!")))
+
+(defndynamic do- [ev x]
+  (if (empty? x)
+    (list ev ())
+    (let [res (evaluate- ev (car x))]
+      (do- (car res) (cdr x)))))
 
 (defndynamic apply [ev x]
   (let [f (car x)]
     (if (= 'quote f)
       x
-      (if (in? ev f)
-        (apply-to (get-from-env ev f) (cdr x) ev)
-        (macro-error "Undefined function!")))))
+      (if (= 'begin f)
+        (do- ev (cdr x))
+        (if (in? ev f)
+          (apply-to (get-from-env ev f) (cdr x) ev)
+          (macro-error "Undefined function!"))))))
 
 (defndynamic evaluate- [ev x]
   (if (list? x)
     (if (empty? x)
-      ()
+      (list ev ())
       (apply ev x))
     (if (symbol? x)
-      (get-from-env ev x)
-      x)))
+      (list ev (get-from-env ev x))
+      (list ev x))))
 
 (defndynamic plus [ev args]
   (if (empty? args)
-    0
-    (+ (car args) (plus ev (cdr args)))))
+    (list ev 0)
+    (list ev (+ (car args) (cadr (plus ev (cdr args)))))))
 
 (defndynamic minus [ev args]
   (if (empty? args)
-    0
-    (- (car args) (plus ev (cdr args)))))
+    (list ev 0)
+    (list ev (- (car args) (cadr (minus ev (cdr args)))))))
 
 (defndynamic times [ev args]
   (if (empty? args)
-    1
-    (* (car args) (plus ev (cdr args)))))
+    (list ev 1)
+    (list ev (* (car args) (cadr (times ev (cdr args)))))))
 
 (defndynamic div [ev args]
   (if (empty? args)
-    1
-    (/ (car args) (plus ev (cdr args)))))
+    (list ev 1)
+    (list ev (/ (car args) (cadr (div ev (cdr args)))))))
 
 (defndynamic define [ev args]
-  (defdynamic *global-bindings* (append ev (list (list (cadar args) (cadr args))))))
+  (list (append ev (list (list (car args) (cadr args)))) ()))
 
 (defndynamic user-defined [args body]
-  (macro-log "user defined: " args " " body))
+  (list 'fun args body))
 
 (defndynamic define-fn [ev args]
-  (defdynamic *global-bindings*
-    (append ev (list (list (cadar args)
-                           (user-defined (cadr args) (caddr args)))))))
+  (list (append ev (list (list (car args)
+                               (user-defined (cadr args) (caddr args)))))
+        ()))
 
 (defndynamic prt [ev args]
-  (macro-log args))
+  (list () (macro-log args)))
 
 (defdynamic *global-bindings*
   (list
-    (list '+ plus)
-    (list '- minus)
-    (list '* times)
-    (list '/ div)
-    (list 'define define)
-    (list 'fun define-fn)
-    (list 'print prt)))
+    (list '+ (list 'prim plus))
+    (list '- (list 'prim minus))
+    (list '* (list 'prim times))
+    (list '/ (list 'prim div))
+    (list 'define (list 'prim define))
+    (list 'fun (list 'prim define-fn))
+    (list 'print (list 'prim prt))))
 
 (defndynamic evaluate [x]
-  (evaluate- *global-bindings* x))
+  (cadr (evaluate- *global-bindings* x)))
